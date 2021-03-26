@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-# Copyright (c) 2013-2014 Abram Hindle
+# Copyright (c) 2013-2021 Abram Hindle Gengyuan Huang
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -14,7 +14,7 @@
 # limitations under the License.
 #
 import flask
-from flask import Flask, request
+from flask import Flask, request, redirect
 from flask_sockets import Sockets
 import gevent
 from gevent import queue
@@ -26,11 +26,32 @@ app = Flask(__name__)
 sockets = Sockets(app)
 app.debug = True
 
+
+# stored in queue
+# do corresponding action
+CMD_ENTIRE_WORLD = 0
+CMD_CLOSE_CONNECTION = 1
+CMD_SEND_ENTITY = 2
+
+class Command:
+    def __init__(self, cmdtype, content):
+        self._cmdtype = cmdtype
+        self._content = content
+    
+    def get_cmdtype(self):
+        return self._cmdtype
+    
+    def get_content(self):
+        return self._content
+
+
+
 class World:
     def __init__(self):
         self.clear()
         # we've got listeners now!
         self.listeners = list()
+        self.counter = 0
         
     def add_set_listener(self, listener):
         self.listeners.append( listener )
@@ -42,13 +63,14 @@ class World:
         self.update_listeners( entity )
 
     def set(self, entity, data):
+        self.counter = (self.counter + 1) % 100
         self.space[entity] = data
         self.update_listeners( entity )
 
     def update_listeners(self, entity):
         '''update the set listeners'''
         for listener in self.listeners:
-            listener(entity, self.get(entity))
+            listener.put(Command(CMD_SEND_ENTITY, entity))      # send this entity to client
 
     def clear(self):
         self.space = dict()
@@ -59,21 +81,50 @@ class World:
     def world(self):
         return self.space
 
-myWorld = World()        
+myWorld = World()
 
-def set_listener( entity, data ):
-    ''' do something with the update ! '''
+# https://github.com/abramhindle/WebSocketsExamples/blob/master/broadcaster.py
+# following code are taken/modified from CMPUT404 eclass websocket emaple, broadcaster.py
 
-myWorld.add_set_listener( set_listener )
-        
+class Client:
+    def __init__(self):
+        self.queue = queue.Queue()
+    
+    def put(self,v):
+        self.queue.put_nowait(v)
+    
+    def get(self):
+        return self.queue.get()
+
+
 @app.route('/')
 def hello():
     '''Return something coherent here.. perhaps redirect to /static/index.html '''
-    return None
+    return redirect("/static/index.html")
 
 def read_ws(ws,client):
     '''A greenlet function that reads from the websocket and updates the world'''
     # XXX: TODO IMPLEMENT ME
+
+    # frist time establish connection,
+    # send the entire world state over
+    client.put(Command(CMD_ENTIRE_WORLD, None))     # first time connection, put current world into queue
+
+    try:
+        while True:
+            msg = ws.receive()
+            if (msg is not None):
+                # update world
+                packet = json.loads(msg)        # packet is dictionary
+                for entity in packet:
+                    myWorld.set(entity, packet[entity])
+            else:
+                client.put(Command(CMD_CLOSE_CONNECTION, None))
+                break
+    except:
+        '''Done'''
+
+
     return None
 
 @sockets.route('/subscribe')
@@ -81,7 +132,39 @@ def subscribe_socket(ws):
     '''Fufill the websocket URL of /subscribe, every update notify the
        websocket and read updates from the websocket '''
     # XXX: TODO IMPLEMENT ME
-    return None
+    client = Client()
+    myWorld.add_set_listener(client)
+    g = gevent.spawn( read_ws, ws, client )    
+    print("Subscribing")
+    try:
+        while True:
+            # block here
+            cmd = client.get()
+
+            if cmd.get_cmdtype() == CMD_CLOSE_CONNECTION:
+                print("Unsubscribed")
+                break
+            elif cmd.get_cmdtype() == CMD_ENTIRE_WORLD:
+                print("Sending initial state")
+                ws.send(json.dumps(myWorld.world()))
+            elif cmd.get_cmdtype() == CMD_SEND_ENTITY:
+                print("Sending update")
+                entity = cmd.get_content()
+                data = myWorld.world().get(entity, None)
+                if data == None:
+                    print("Update expired, update droped")
+                else:
+                    ws.send(json.dumps({entity: data}))
+            else:
+                break       # error, shouldnt happend
+            
+            # send current counter
+            ws.send(json.dumps({"currentX":myWorld.counter}))
+    except Exception as e:# WebSocketError as e:
+        print ("WS Error %s" % e)
+    finally:
+        myWorld.listeners.remove(client)
+        gevent.kill(g)
 
 
 # I give this to you, this is how you get the raw body/data portion of a post in flask
