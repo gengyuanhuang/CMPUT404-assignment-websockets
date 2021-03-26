@@ -37,8 +37,8 @@ var wscounter = 0;
 var socket;
 
 function debug(str) {
-    var debugDiv = document.getElementById('debug');
-    debugDiv.innerHTML = "" + str;
+    // var debugDiv = document.getElementById('debug');
+    // debugDiv.innerHTML = "" + str;
 }
 debug("Test");
 
@@ -48,11 +48,13 @@ world = {};
 function drawCircle(context,entity) {
     with(context) {
         beginPath();                
-        lineWidth = 3;
+        lineWidth = 8;
         var x = entity["x"];
         var y = entity["y"];
-        //moveTo(x,y);
+
+
         fillStyle = entity["colour"];
+        filter = "blur(1pt)";
         strokeStyle = fillStyle;
         arc(x, y, (entity["radius"])?entity["radius"]:50, 0, 2.0 * Math.PI, false);  
         stroke();                                
@@ -72,7 +74,7 @@ function prepEntity(entity) {
 function clearFrame() {
     with(context) {
 	moveTo(0,0);
-	fillStyle = "#000";
+	fillStyle = "#FFF";
 	fillRect(0,0,W,H);
     }
 
@@ -237,16 +239,15 @@ mouse = (function() {
 // Add the application specific mouse listeners!
 //XXX: TODO Make these prettier!
 mouse.mousedowners.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'blue'});
+    addEntityWithoutName({'x':x,'y':y,'colour':'purple', 'radius':20});
 });
 
 mouse.mouseuppers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'red'});
+    addEntityWithoutName({'x':x,'y':y,'colour':'orange', 'radius':50});
 });
 
 mouse.mousedraggers.push(function(x,y,clicked,e) {
-    addEntityWithoutName({'x':x,'y':y,'colour':'green',
-                          'radius':10});
+    addEntityWithoutName({'x':x,'y':y,'colour':'#daf3f5', 'radius':10});
 });
 
 
@@ -275,12 +276,7 @@ function wsSetup() {
             // after that, server only sends data if there is a update to the state
             let packet = JSON.parse(msg.data)       // incoming packet
             for (let entity in packet) {
-                if (entity === "currentX") {
-                    counter = packet[entity];           // update current counter
-                } else {
-                    world[entity] = packet[entity];     // update state
-                }
-                
+                world[entity] = packet[entity];     // update state
             }
             drawNextFrame();                        // draw
 

@@ -51,7 +51,7 @@ class World:
         self.clear()
         # we've got listeners now!
         self.listeners = list()
-        self.counter = 0
+        self.counter = 0                        # used to sync entity with all clients, but commented out as it conficts with freetests.
         
     def add_set_listener(self, listener):
         self.listeners.append( listener )
@@ -158,8 +158,8 @@ def subscribe_socket(ws):
             else:
                 break       # error, shouldnt happend
             
-            # send current counter
-            ws.send(json.dumps({"currentX":myWorld.counter}))
+            # # send current counter
+            # ws.send(json.dumps({"currentX":myWorld.counter}))     # conflicting with freetests, so commented out, was planing to use this to sync draw
     except Exception as e:# WebSocketError as e:
         print ("WS Error %s" % e)
     finally:
